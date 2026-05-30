@@ -1,4 +1,6 @@
 
+'use client';
+
 import React from 'react';
 import { Calendar, Clock, CheckCircle, ChevronRight, Globe, User, Mail, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';

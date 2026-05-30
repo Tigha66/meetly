@@ -1,5 +1,7 @@
 
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { 
   CheckCircle2, 
   AlertCircle, 
@@ -13,7 +15,7 @@ import { cn } from '@/lib/utils/cn';
 
 export default function IntegrationsPage() {
   // Mock state for local demo
-  const [isConnected, setIsConnected] = React.useState(false);
+  const [isConnected, setIsConnected] = useState(false);
 
   return (
     <div className="p-8 max-w-4xl mx-auto">

@@ -1,0 +1,20 @@
+{
+  "name": "Meetly - Smart Scheduling for Professionals",
+  "short_name": "Meetly",
+  "description": "Effortless scheduling for consultants, coaches, and freelancers. Create booking pages, manage availability, and sync with Google Calendar.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "lang": "en-US"
+}
