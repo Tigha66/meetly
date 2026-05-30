@@ -1,44 +1,74 @@
 
+'use client';
+
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Calendar, 
-  Clock, 
-  Settings, 
-  Users, 
-  LogOut, 
-  Plus, 
-  MoreVertical, 
-  CheckCircle2,
-  XCircle,
-  ArrowUpRight,
-  CalendarDays
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Users,
+  Clock,
+  Settings,
+  LogOut,
+  Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
+const NAV_ITEMS = [
+  { icon: <LayoutDashboard size={20} />, label: 'Overview', href: '/dashboard' },
+  { icon: <CalendarDays size={20} />, label: 'Event Types', href: '/dashboard/event-types' },
+  { icon: <Users size={20} />, label: 'Bookings', href: '/dashboard/bookings' },
+  { icon: <Clock size={20} />, label: 'Availability', href: '/dashboard/availability' },
+  { icon: <Settings size={20} />, label: 'Integrations', href: '/dashboard/integrations' },
+];
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [current, setCurrent] = React.useState('/dashboard');
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-6 flex items-center gap-3">
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+        <a href="/dashboard" className="p-6 flex items-center gap-3">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <Calendar className="text-white w-4 h-4" />
+            <CalendarDays className="text-white w-4 h-4" />
           </div>
           <span className="text-lg font-bold">Meetly</span>
-        </div>
+        </a>
 
         <nav className="flex-1 px-4 space-y-1">
-          <SidebarItem icon={<LayoutDashboard size={20} />} label="Overview" active />
-          <SidebarItem icon={<CalendarDays size={20} />} label="Event Types" />
-          <SidebarItem icon={<Users size={20} />} label="Bookings" />
-          <SidebarItem icon={<Clock size={20} />} label="Availability" />
-          <SidebarItem icon={<Settings size={20} />} label="Integrations" />
+          {NAV_ITEMS.map(item => (
+            <a
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                current === item.href
+                  ? 'bg-indigo-50 text-indigo-600'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              )}
+            >
+              <span className={cn(
+                'transition-colors',
+                current === item.href ? 'text-indigo-600' : 'text-slate-400'
+              )}>
+                {item.icon}
+              </span>
+              {item.label}
+            </a>
+          ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4 border-t border-slate-100 space-y-1">
+          <a
+            href="/book/abdelhak/intro-call"
+            target="_blank"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
+          >
+            <Link2 size={20} className="text-slate-400" />
+            View Booking Page
+          </a>
           <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group">
-            <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300">
+            <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300 shrink-0">
               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Abdelhak" alt="User" />
             </div>
             <div className="flex-1 overflow-hidden">
@@ -55,19 +85,5 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {children}
       </main>
     </div>
-  );
-}
-
-function SidebarItem({ icon, label, active = false }: { icon: React.ReactNode, label: string, active?: boolean }) {
-  return (
-    <a href="#" className={cn(
-      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all group",
-      active ? "bg-indigo-50 text-indigo-600" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-    )}>
-      <span className={cn(active ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")}>
-        {icon}
-      </span>
-      {label}
-    </a>
   );
 }
