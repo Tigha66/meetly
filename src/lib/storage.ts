@@ -1,4 +1,3 @@
-
 'use client';
 
 // Meetly Local Storage Data Layer
@@ -12,6 +11,9 @@ export interface MeetlyProfile {
   avatar_url: string;
   timezone: string;
   slug: string;
+  bio: string;
+  socials: { platform: string; url: string }[];
+  testimonials: { name: string; role: string; text: string; avatar: string }[];
 }
 
 export interface MeetlyEventType {
@@ -24,6 +26,10 @@ export interface MeetlyEventType {
   color: string;
   is_active: boolean;
   created_at: string;
+  // New fields for intelligent scheduling
+  buffer_before_minutes?: number;
+  buffer_after_minutes?: number;
+  max_bookings_per_day?: number;
 }
 
 export interface MeetlyAvailabilityRule {
@@ -52,6 +58,15 @@ export interface MeetlyCalendarConnection {
   user_id: string;
   connected: boolean;
   email: string | null;
+}
+
+// Global settings interface
+export interface MeetlyGlobalSettings {
+  min_notice_hours: number;
+  default_event_type_id: string | null;
+  default_buffer_before: number;
+  default_buffer_after: number;
+  max_bookings_per_day: number;
 }
 
 const KEY_PREFIX = 'meetly_';
@@ -83,6 +98,26 @@ const DEFAULT_HOST: MeetlyProfile = {
   avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Abdelhak',
   timezone: 'Europe/London',
   slug: 'abdelhak',
+  bio: 'Senior Full-Stack Engineer and UX Strategist helping founders scale high-performance AI applications with 10k aesthetic.',
+  socials: [
+    { platform: 'twitter', url: 'https://twitter.com/abdelhak' },
+    { platform: 'linkedin', url: 'https://linkedin.com/in/abdelhak' },
+    { platform: 'github', url: 'https://github.com/Tigha66' },
+  ],
+  testimonials: [
+    {
+      name: 'Elon Musk',
+      role: 'CEO, Tesla',
+      text: 'Abdelhak is a wizard with AI interfaces. The speed of delivery is unmatched.',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elon',
+    },
+    {
+      name: 'Sam Altman',
+      role: 'CEO, OpenAI',
+      text: 'Absolute precision in execution. He doesn\'t just build apps, he builds experiences.',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sam',
+    },
+  ],
 };
 
 const DEFAULT_EVENTS: MeetlyEventType[] = [
@@ -96,6 +131,10 @@ const DEFAULT_EVENTS: MeetlyEventType[] = [
     color: '#4f46e5',
     is_active: true,
     created_at: new Date().toISOString(),
+    // Default values for new fields
+    buffer_before_minutes: 0,
+    buffer_after_minutes: 0,
+    max_bookings_per_day: 10,
   },
   {
     id: 'evt_2',
@@ -107,6 +146,10 @@ const DEFAULT_EVENTS: MeetlyEventType[] = [
     color: '#7c3aed',
     is_active: true,
     created_at: new Date().toISOString(),
+    // Default values for new fields
+    buffer_before_minutes: 0,
+    buffer_after_minutes: 0,
+    max_bookings_per_day: 10,
   },
   {
     id: 'evt_3',
@@ -118,6 +161,10 @@ const DEFAULT_EVENTS: MeetlyEventType[] = [
     color: '#06b6d4',
     is_active: true,
     created_at: new Date().toISOString(),
+    // Default values for new fields
+    buffer_before_minutes: 0,
+    buffer_after_minutes: 0,
+    max_bookings_per_day: 10,
   },
 ];
 
@@ -139,6 +186,15 @@ const DEFAULT_AVAILABILITY: MeetlyAvailabilityRule[] = (() => {
 
 const DEFAULT_BOOKINGS: MeetlyBooking[] = [];
 
+// Global settings defaults
+const DEFAULT_GLOBAL_SETTINGS: MeetlyGlobalSettings = {
+  min_notice_hours: 24,
+  default_event_type_id: null,
+  default_buffer_before: 0,
+  default_buffer_after: 0,
+  max_bookings_per_day: 10,
+};
+
 // Initialize defaults on first load
 export function initDefaults(): void {
   if (typeof window === 'undefined') return;
@@ -156,6 +212,9 @@ export function initDefaults(): void {
   }
   if (!localStorage.getItem(getKey('calendar_connection'))) {
     save('calendar_connection', { user_id: 'host_1', connected: false, email: null });
+  }
+  if (!localStorage.getItem(getKey('global_settings'))) {
+    save('global_settings', DEFAULT_GLOBAL_SETTINGS);
   }
 }
 
@@ -179,6 +238,10 @@ export function addEventType(event: Omit<MeetlyEventType, 'id' | 'created_at'>):
     ...event,
     id: `evt_${Date.now()}`,
     created_at: new Date().toISOString(),
+    // Ensure new fields have defaults if not provided
+    buffer_before_minutes: event.buffer_before_minutes ?? 0,
+    buffer_after_minutes: event.buffer_after_minutes ?? 0,
+    max_bookings_per_day: event.max_bookings_per_day ?? 10,
   };
   save('event_types', [...events, newEvent]);
   return newEvent;
@@ -267,4 +330,14 @@ export function setCalendarConnected(connected: boolean, email?: string): void {
     connected,
     email: email || current.email,
   });
+}
+
+// Global Settings
+export function getGlobalSettings(): MeetlyGlobalSettings {
+  return load<MeetlyGlobalSettings>('global_settings', DEFAULT_GLOBAL_SETTINGS);
+}
+
+export function updateGlobalSettings(settings: Partial<MeetlyGlobalSettings>): void {
+  const current = getGlobalSettings();
+  save('global_settings', { ...current, ...settings });
 }

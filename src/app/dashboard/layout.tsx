@@ -9,7 +9,8 @@ import {
   Clock,
   Settings,
   LogOut,
-  Link2
+  Link2,
+  User
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { icon: <Users size={20} />, label: 'Bookings', href: '/dashboard/bookings' },
   { icon: <Clock size={20} />, label: 'Availability', href: '/dashboard/availability' },
   { icon: <Settings size={20} />, label: 'Integrations', href: '/dashboard/integrations' },
+  { icon: <User size={20} />, label: 'Settings', href: '/dashboard/settings' },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
