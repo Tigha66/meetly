@@ -5,6 +5,7 @@ test.describe('Meetly Core Booking Flow', () => {
   test('Landing page loads', async ({ page }) => {
     await page.goto('http://localhost:3000');
     await expect(page).toHaveTitle(/Meetly/);
+    await expect(page.locator('h1')).toContainText('sells you first');
   });
 
   test('Guest booking page loads and shows host info', async ({ page }) => {

@@ -1,7 +1,6 @@
-
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -10,9 +9,11 @@ import {
   Settings,
   LogOut,
   Link2,
-  User
+  User,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 const NAV_ITEMS = [
   { icon: <LayoutDashboard size={20} />, label: 'Overview', href: '/dashboard' },
@@ -24,7 +25,26 @@ const NAV_ITEMS = [
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [current, setCurrent] = React.useState('/dashboard');
+  const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string>('');
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUserEmail(session.user.email || '');
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
@@ -44,17 +64,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href={item.href}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                current === item.href
-                  ? 'bg-indigo-50 text-indigo-600'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               )}
             >
-              <span className={cn(
-                'transition-colors',
-                current === item.href ? 'text-indigo-600' : 'text-slate-400'
-              )}>
-                {item.icon}
-              </span>
+              <span className="text-slate-400">{item.icon}</span>
               {item.label}
             </a>
           ))}
@@ -62,7 +75,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="p-4 border-t border-slate-100 space-y-1">
           <a
-            href="/book/abdelhak/intro-call"
+            href="/book/demo/intro-call"
             target="_blank"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
           >
@@ -71,13 +84,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
           <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group">
             <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300 shrink-0">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Abdelhak" alt="User" />
+              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=User" alt="User" />
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-medium truncate">Abdelhak</p>
-              <p className="text-xs text-slate-500 truncate">Pro Plan</p>
+              <p className="text-sm font-medium truncate">{userEmail || 'User'}</p>
+              <p className="text-xs text-slate-500 truncate">Early Access</p>
             </div>
-            <LogOut size={16} className="text-slate-400 group-hover:text-red-500 transition-colors" />
+            <button
+              onClick={async () => {
+                const supabase = getSupabaseBrowserClient();
+                await supabase.auth.signOut();
+                window.location.href = '/login';
+              }}
+              className="p-1 text-slate-400 group-hover:text-red-500 transition-colors"
+              title="Log out"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
