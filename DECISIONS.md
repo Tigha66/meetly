@@ -11,10 +11,6 @@ Position Meetly as "Turn your booking link into a page that sells you first" —
 **Reason:**
 "Calendly Killer" and "better than Calendly" are trust-killers. They invite scrutiny and comparison. Meetly's actual advantage is conversion-focused booking pages, not replicating Calendly's scheduling features.
 
-**Alternatives considered:**
-- "Scheduling that feels effortless" (original — too generic)
-- "Better than Calendly" (rejected — positioning trap)
-
 ---
 
 ## Remove All Fake Social Proof
@@ -23,10 +19,10 @@ Position Meetly as "Turn your booking link into a page that sells you first" —
 **Status:** Active
 
 **Decision:**
-Remove all fake testimonials, celebrity names, fake ratings, and unsupported claims. If testimonials are shown, they must be clearly labeled as demo/placeholder or the section must be empty.
+Remove all fake testimonials, celebrity names, fake ratings, and unsupported claims.
 
 **Reason:**
-Fake celebrity testimonials (Elon Musk, Sam Altman) destroy credibility instantly. Users who recognize the names will never trust the product.
+Fake celebrity testimonials (Elon Musk, Sam Altman) destroy credibility instantly.
 
 ---
 
@@ -36,7 +32,7 @@ Fake celebrity testimonials (Elon Musk, Sam Altman) destroy credibility instantl
 **Status:** Active
 
 **Decision:**
-Trust bar on booking page only shows: "Instant confirmation" and "Timezone aware" — both actually implemented. Everything else (encrypted, reschedule, email) marked as "Coming Soon" until implemented.
+Trust bar only shows "Instant confirmation" and "Timezone aware" — both actually implemented. Everything else marked "Coming Soon".
 
 ---
 
@@ -46,10 +42,7 @@ Trust bar on booking page only shows: "Instant confirmation" and "Timezone aware
 **Status:** Active
 
 **Decision:**
-All pre-production flows use "Early Access" / "Beta" language. Pricing features disabled. No payment claims.
-
-**Reason:**
-The app currently runs on localStorage with fake auth. Advertising payments, calendar sync, or email automation as active features would be dishonest.
+All pre-production flows use "Early Access" / "Beta" language. No payment claims.
 
 ---
 
@@ -59,7 +52,60 @@ The app currently runs on localStorage with fake auth. Advertising payments, cal
 **Status:** Active
 
 **Decision:**
-All important project state is written to repo files (PROJECT_MEMORY.md, CURRENT_STATE.md, WORKLOG.md, DECISIONS.md, NEXT_ACTIONS.md). Chat history is never relied upon as the source of truth.
+All important project state is written to repo files. Chat history is never relied upon.
+
+---
+
+## Auth Architecture: Supabase Auth Only (No NextAuth)
+
+**Date:** 2026-05-31
+**Status:** Active
+
+**Decision:**
+Use Supabase Auth directly. Do NOT add NextAuth as a separate layer.
 
 **Reason:**
-Sessions get compacted. Chat history disappears. The repo is the only durable memory.
+The project already has `@supabase/supabase-js` and a Supabase schema. Adding NextAuth would introduce a second auth system with no benefit. Supabase Auth provides email/password, session management, and cookie-based auth out of the box.
+
+**Alternatives considered:**
+- NextAuth + Supabase Postgres driver (rejected — unnecessary complexity)
+- Custom JWT auth (rejected — Supabase Auth already handles this)
+
+---
+
+## Route Protection: proxy.ts (Next.js 16 convention)
+
+**Date:** 2026-05-31
+**Status:** Active
+
+**Decision:**
+Use `src/proxy.ts` with named `proxy` export instead of deprecated `middleware.ts`.
+
+**Reason:**
+Next.js 16 renamed middleware to proxy. The old `middleware.ts` convention is deprecated and shows build warnings.
+
+---
+
+## Profile Bootstrap: Server API Route with Admin Client
+
+**Date:** 2026-05-31
+**Status:** Active
+
+**Decision:**
+Profile creation on signup happens via `/api/profile/bootstrap` POST route using the Supabase admin (service role) client.
+
+**Reason:**
+After signup, the user's session may not yet have an active JWT (if email confirmation is required). The admin client bypasses RLS to create the initial profile row. The route validates the userId matches the authenticated user.
+
+---
+
+## Slug Generation: Email Prefix + Uniqueness Check
+
+**Date:** 2026-05-31
+**Status:** Active
+
+**Decision:**
+Generate slugs from the user's email prefix (before @), sanitized to lowercase alphanumeric with hyphens. Append incrementing counter if slug already exists.
+
+**Reason:**
+Simple, deterministic, and doesn't require user input during signup. The uniqueness check prevents collisions.
