@@ -62,7 +62,52 @@ Auth + dashboard data ownership code is complete and will work once env vars are
 ### What's still localStorage
 - Guest booking creation (Phase 1E)
 - Integrations page (Phase 2C)
-- Booking page host data (Phase 1C)
 - Scheduling defaults in settings (min notice, buffers, max bookings)
 - Testimonials in settings
 - Automations page
+
+---
+
+## 2026-05-31 — Phase 1C Public Booking Page from Supabase
+
+### Summary
+Migrated public booking page (`/book/[hostSlug]/[eventSlug]`) from localStorage to Supabase. Host profile, event types, and availability are now fetched from the database. Booking submission is shown for preview but clearly marked as "not enabled yet".
+
+### Files changed
+- `src/app/api/host/[slug]/route.ts` — New: fetch profile by slug from Supabase
+- `src/app/api/host/[slug]/events/route.ts` — New: fetch active event types for host
+- `src/app/api/host/[slug]/availability/route.ts` — New: fetch availability rules for host
+- `src/app/api/bookings/route.ts` — New: fetch confirmed bookings for host (slot conflict checking)
+- `src/app/book/[hostSlug]/[eventSlug]/page.tsx` — Full rewrite: client-side Supabase API fetching, loading/error states, removed all localStorage + hardcoded host_1/demo data
+- `CURRENT_STATE.md` — Updated
+- `NEXT_ACTIONS.md` — Updated
+
+### What changed on the booking page
+- Profile loaded from `/api/host/[slug]` instead of localStorage
+- Event types loaded from `/api/host/[slug]/events` instead of localStorage
+- Availability loaded from `/api/host/[slug]/availability` instead of localStorage
+- Existing bookings loaded from `/api/bookings?hostId=...` for slot conflict checking
+- Removed: testimonials, hardcoded avatar fallback to diceBear with slug seed
+- Removed: fake socials, fake "coming soon" items that weren't real
+- Added: Loading spinner state
+- Added: Error states for SUPABASE_NOT_CONFIGURED, HOST_NOT_FOUND, NO_EVENT_TYPES, FETCH_ERROR
+- Added: "Booking Submission Not Yet Enabled" amber notice when slot selected
+- Removed all `getProfile()`, `getEventTypes()`, `getAvailability()`, `addBooking()`, `getConfirmedBookings()` calls from storage.ts
+
+### Result
+✅ Committed and pushed. Build passes: 20 routes, 0 TypeScript errors.
+⚠️ LIVE VERIFICATION BLOCKED: Supabase env vars not set in Vercel yet.
+
+### What moved from localStorage → Supabase
+| Data | Before | After |
+|---|---|---|
+| Public host profile | localStorage hardcoded "abdelhak" | Supabase profiles table |
+| Public event types | localStorage hardcoded 3 demo events | Supabase event_types table |
+| Public availability | localStorage hardcoded Mon-Fri 9-5 | Supabase availability_rules table |
+| Slot conflict checking | localStorage bookings | Supabase bookings table |
+
+### What's still localStorage / not implemented
+- Guest booking creation (Phase 1E) — form shows but submit is blocked
+- Email confirmations (Phase 2A)
+- Google Calendar integration (Phase 2C)
+- Stripe (Phase 3)

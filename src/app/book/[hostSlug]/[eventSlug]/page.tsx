@@ -1,22 +1,71 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Calendar, Clock, CheckCircle, ChevronRight, ChevronLeft, Globe, User, Mail, FileText,
-  ArrowLeft, Zap, RefreshCw, Shield, Hash, AtSign
+  ArrowLeft, Zap, RefreshCw, Shield, Hash, AtSign, AlertCircle, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { format, addDays, subDays, startOfDay, parseISO, isSameDay, isToday, getDay } from 'date-fns';
 import { generateAvailableSlots } from '@/lib/scheduling';
-import {
-  getProfile, getEventTypeBySlug, getEventTypes, getAvailability, addBooking,
-  getConfirmedBookings, getGlobalSettings, type MeetlyEventType
-} from '@/lib/storage';
 
-interface Props {
-  params: { hostSlug: string; eventSlug: string };
+/* ── Types ─────────────────────────────────────────────────── */
+
+interface HostProfile {
+  id: string;
+  full_name: string;
+  email: string;
+  avatar_url: string;
+  timezone: string;
+  slug: string;
+  bio: string | null;
 }
+
+interface EventType {
+  id: string;
+  host_id: string;
+  name: string;
+  slug: string;
+  duration_minutes: number;
+  description: string | null;
+  color: string;
+  is_active: boolean;
+}
+
+interface AvailabilityRule {
+  id: string;
+  host_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  is_enabled: boolean;
+}
+
+interface ConfirmedBooking {
+  id: string;
+  start_time: string;
+  end_time: string;
+}
+
+type PageState =
+  | { status: 'loading' }
+  | { status: 'error'; code: string; message: string }
+  | { status: 'ready'; host: HostProfile; eventTypes: EventType[]; rules: AvailabilityRule[] };
+
+type BookingStep = 'select' | 'form' | 'done' | 'submit-disabled';
+
+/* ── API helpers ───────────────────────────────────────────── */
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) {
+    throw data;
+  }
+  return data as T;
+}
+
+/* ── Social icons ──────────────────────────────────────────── */
 
 const SOCIAL_ICONS: Record<string, React.ReactNode> = {
   twitter: <AtSign size={16} />,
@@ -25,14 +74,20 @@ const SOCIAL_ICONS: Record<string, React.ReactNode> = {
   website: <Globe size={16} />,
 };
 
-export default function GuestBookingPage({ params }: Props) {
-  const host = getProfile();
-  const allEvents = getEventTypes().filter(e => e.is_active);
-  const activeEvent = getEventTypeBySlug(params.eventSlug);
-  const [selectedEvent, setSelectedEvent] = useState<MeetlyEventType | undefined>(activeEvent);
-  const availability = getAvailability();
-  const globalSettings = getGlobalSettings();
+/* ── Component ─────────────────────────────────────────────── */
 
+interface Props {
+  params: Promise<{ hostSlug: string; eventSlug: string }>;
+}
+
+export default function GuestBookingPage({ params }: Props) {
+  const { hostSlug, eventSlug } = React.use(params);
+
+  // Page-level state
+  const [pageState, setPageState] = useState<PageState>({ status: 'loading' });
+
+  // Booking interaction state
+  const [selectedEvent, setSelectedEvent] = useState<EventType | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSlot, setSelectedSlot] = useState<{ start: string; isoStart: string; isoEnd: string } | null>(null);
   const [guestName, setGuestName] = useState('');
@@ -41,57 +96,178 @@ export default function GuestBookingPage({ params }: Props) {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState('');
-  const [allBookings, setAllBookings] = useState<any[]>([]);
-  const [testimonialIdx, setTestimonialIdx] = useState(0);
-  const [step, setStep] = useState<'select' | 'form' | 'done'>('select');
+  const [bookings, setBookings] = useState<ConfirmedBooking[]>([]);
+  const [step, setStep] = useState<BookingStep>('select');
 
+  // Load host data from Supabase on mount
   useEffect(() => {
-    setAllBookings(getConfirmedBookings(host.id));
-  }, [confirmed]);
+    let cancelled = false;
 
-  // Auto-rotate testimonials
-  const testInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+    async function load() {
+      try {
+        // Fetch profile, event types, and availability in parallel
+        const [profileRes, eventsRes, availRes] = await Promise.all([
+          fetchJson<{ profile: HostProfile }>(`/api/host/${hostSlug}`),
+          fetchJson<{ eventTypes: EventType[] }>(`/api/host/${hostSlug}/events`),
+          fetchJson<{ rules: AvailabilityRule[] }>(`/api/host/${hostSlug}/availability`),
+        ]);
+
+        if (cancelled) return;
+
+        const host = profileRes.profile;
+        const eventTypes = eventsRes.eventTypes.filter((e) => e.is_active);
+        const rules = availRes.rules || [];
+
+        if (eventTypes.length === 0 && !cancelled) {
+          setPageState({
+            status: 'error',
+            code: 'NO_EVENT_TYPES',
+            message: 'This host has not made any event types available yet.',
+          });
+          return;
+        }
+
+        if (!cancelled) {
+          setPageState({ status: 'ready', host, eventTypes, rules });
+
+          // Auto-select the event from URL param, or first available
+          const fromUrl = eventTypes.find((e) => e.slug === eventSlug);
+          if (fromUrl) {
+            setSelectedEvent(fromUrl);
+          } else if (eventTypes.length > 0) {
+            setSelectedEvent(eventTypes[0]);
+          }
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+
+        const code = err?.error || err?.code || 'UNKNOWN';
+        const message = err?.message || 'Something went wrong.';
+
+        if (code === 'SUPABASE_NOT_CONFIGURED') {
+          setPageState({
+            status: 'error',
+            code: 'SUPABASE_NOT_CONFIGURED',
+            message:
+              'Booking system is not yet fully configured. The site owner needs to connect the database.',
+          });
+        } else if (code === 'HOST_NOT_FOUND') {
+          setPageState({
+            status: 'error',
+            code: 'HOST_NOT_FOUND',
+            message: 'This booking link is invalid or the host profile does not exist.',
+          });
+        } else {
+          setPageState({
+            status: 'error',
+            code: 'FETCH_ERROR',
+            message: message || 'Failed to load booking data. Please try again later.',
+          });
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [hostSlug, eventSlug]);
+
+  // Load bookings for the host when ready (for slot conflict checking)
+  const hostId = pageState.status === 'ready' ? pageState.host.id : null;
   useEffect(() => {
-    if (host.testimonials.length <= 1) return;
-    testInterval.current = setInterval(() => {
-      setTestimonialIdx(i => (i + 1) % host.testimonials.length);
-    }, 4000);
-    return () => { if (testInterval.current) clearInterval(testInterval.current); };
-  }, [host.testimonials.length]);
+    if (!hostId) return;
+    let cancelled = false;
+
+    async function loadBookings() {
+      try {
+        const from = startOfDay(new Date()).toISOString();
+        const to = addDays(new Date(), 60).toISOString();
+        const data = await fetchJson<{ bookings: ConfirmedBooking[] }>(
+          `/api/bookings?hostId=${hostId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        );
+        if (!cancelled) setBookings(data.bookings || []);
+      } catch {
+        // Non-critical: slot checking will just be best-effort
+        console.warn('[Booking] Failed to load existing bookings');
+      }
+    }
+
+    loadBookings();
+    return () => { cancelled = true; };
+  }, [hostId]);
+
+  // Redirect event when URL eventSlug doesn't match loaded events
+  useEffect(() => {
+    if (pageState.status !== 'ready') return;
+    const fromUrl = pageState.eventTypes.find((e) => e.slug === eventSlug);
+    if (fromUrl && (!selectedEvent || selectedEvent.slug !== eventSlug)) {
+      setSelectedEvent(fromUrl);
+    }
+  }, [pageState, eventSlug, selectedEvent]);
+
+  // ── Derived data (only when ready) ──
+  const host = pageState.status === 'ready' ? pageState.host : null;
+  const eventTypes = pageState.status === 'ready' ? pageState.eventTypes : [];
+  const rules = pageState.status === 'ready' ? pageState.rules : [];
+
+  const activeRules = useMemo(() => rules.filter((r) => r.is_enabled), [rules]);
 
   function getBookingsForDate(date: Date): number {
     const dayStart = startOfDay(date).getTime();
-    return allBookings.filter(b => {
+    return bookings.filter((b) => {
       const bt = new Date(b.start_time).getTime();
       return bt >= dayStart && bt < dayStart + 86400000;
     }).length;
   }
 
   const slots = useMemo(() => {
-    if (!selectedEvent) return [];
-    const rules = availability.filter(r => r.is_enabled);
-    const evtMaxPerDay = selectedEvent.max_bookings_per_day ?? globalSettings.min_notice_hours;
+    if (!selectedEvent || pageState.status !== 'ready') return [];
     const dayBookings = getBookingsForDate(selectedDate);
+    // Default: 24h notice, 10 max per day
     return generateAvailableSlots(
-      rules,
+      activeRules,
       selectedEvent.duration_minutes,
       selectedDate,
-      selectedEvent.buffer_before_minutes ?? 0,
-      selectedEvent.buffer_after_minutes ?? 0,
-      globalSettings.min_notice_hours,
+      0, // buffer_before (not yet in schema)
+      0, // buffer_after (not yet in schema)
+      24, // min_notice_hours
       dayBookings,
-      typeof evtMaxPerDay === 'number' ? evtMaxPerDay : 10
+      10 // max per day default
     );
-  }, [selectedDate, selectedEvent, availability, allBookings, globalSettings.min_notice_hours]);
+  }, [selectedDate, selectedEvent, activeRules, bookings, pageState]);
 
   function isSlotTaken(isoStart: string): boolean {
     const start = new Date(isoStart).getTime();
-    return allBookings.some(b => Math.abs(new Date(b.start_time).getTime() - start) < 60000);
+    return bookings.some((b) => Math.abs(new Date(b.start_time).getTime() - start) < 60000);
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(''); setConflict('');
+  // ── Event handlers ──
+
+  function handleDateChange(d: Date) {
+    setSelectedDate(d);
+    setSelectedSlot(null);
+  }
+
+  function handleEventChange(evt: EventType) {
+    setSelectedEvent(evt);
+    setSelectedSlot(null);
+    setStep('select');
+  }
+
+  function handleSlotSelect(slot: { start: string; isoStart: string; isoEnd: string }) {
+    if (isSlotTaken(slot.isoStart)) return;
+    setSelectedSlot(slot);
+    // Booking submission is not fully enabled yet — show form but with notice
+    setStep('submit-disabled');
+    setTimeout(() => {
+      document.getElementById('booking-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }
+
+  function handleSubmit(_e: React.FormEvent) {
+    _e.preventDefault();
+    setError('');
+    setConflict('');
+
     if (!guestName.trim()) { setError('Name is required'); return; }
     if (!guestEmail.trim() || !guestEmail.includes('@')) { setError('Valid email is required'); return; }
     if (!selectedSlot) { setError('Please select a time slot'); return; }
@@ -102,67 +278,62 @@ export default function GuestBookingPage({ params }: Props) {
       return;
     }
 
-    addBooking({
-      event_type_id: selectedEvent.id,
-      host_id: host.id,
-      guest_name: guestName.trim(),
-      guest_email: guestEmail.trim(),
-      guest_notes: guestNotes.trim(),
-      start_time: selectedSlot.isoStart,
-      end_time: selectedSlot.isoEnd,
-      status: 'confirmed',
-    });
-    setConfirmed(true);
-    setStep('done');
+    // Booking submission endpoint not yet implemented (Phase 1E)
+    setError('Booking submission is not yet enabled. The booking system is still being connected.');
   }
 
-  function handleDateChange(d: Date) {
-    setSelectedDate(d);
-    setSelectedSlot(null);
-  }
-
-  function handleEventChange(evt: MeetlyEventType) {
-    setSelectedEvent(evt);
-    setSelectedSlot(null);
-    setStep('select');
-  }
-
-  function handleSlotSelect(slot: { start: string; isoStart: string; isoEnd: string }) {
-    if (isSlotTaken(slot.isoStart)) return;
-    setSelectedSlot(slot);
-    setStep('form');
-    setTimeout(() => {
-      document.getElementById('booking-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-  }
-
-  // ---- NOT FOUND ----
-  if (!selectedEvent && allEvents.length === 0) {
+  // ── Render: Loading ──
+  if (pageState.status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fafafa]">
-        <div className="text-center p-8">
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Event Not Found</h1>
-          <p className="text-slate-500 mb-6">This booking link is invalid or the event has been removed.</p>
-          <a href="/" className="text-indigo-600 hover:underline font-medium">Go to Meetly</a>
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-4" />
+          <p className="text-slate-500 text-sm">Loading booking page…</p>
         </div>
       </div>
     );
   }
 
-  // Use first available event as fallback
-  const currentEvent = selectedEvent || allEvents[0];
-  if (!selectedEvent && allEvents.length > 0) {
-    handleEventChange(allEvents[0]);
+  // ── Render: Error ──
+  if (pageState.status === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#fafafa] p-6">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-red-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">
+            {pageState.code === 'HOST_NOT_FOUND'
+              ? 'Booking Link Not Found'
+              : pageState.code === 'SUPABASE_NOT_CONFIGURED'
+                ? 'Booking System Not Ready'
+                : pageState.code === 'NO_EVENT_TYPES'
+                  ? 'No Events Available'
+                  : 'Something Went Wrong'}
+          </h1>
+          <p className="text-slate-500 mb-6 leading-relaxed">{pageState.message}</p>
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all"
+          >
+            <ArrowLeft size={16} /> Back to Meetly
+          </a>
+        </div>
+      </div>
+    );
   }
 
-  // ---- CONFIRMATION ----
-  if (step === 'done' && confirmed) {
-    const calDate = parseISO(selectedSlot!.isoStart);
-    const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(currentEvent.name + ' with ' + host.full_name)}&dates=${format(calDate, 'yyyyMMdd')}T${format(calDate, 'HHmmss')}/${format(parseISO(selectedSlot!.isoEnd), 'yyyyMMdd')}T${format(parseISO(selectedSlot!.isoEnd), 'HHmmss')}&details=${encodeURIComponent(guestNotes || 'Meetly booking')}`;
+  // From here: pageState.status === 'ready'
+  const currentEvent = selectedEvent || eventTypes[0];
+  if (!currentEvent) return null; // Shouldn't happen — caught in error state
+
+  // ── Render: Confirmation ──
+  if (step === 'done' && confirmed && selectedSlot) {
+    const calDate = parseISO(selectedSlot.isoStart);
+    const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(currentEvent.name + ' with ' + host!.full_name)}&dates=${format(calDate, 'yyyyMMdd')}T${format(calDate, 'HHmmss')}/${format(parseISO(selectedSlot.isoEnd), 'yyyyMMdd')}T${format(parseISO(selectedSlot.isoEnd), 'HHmmss')}&details=${encodeURIComponent(guestNotes || 'Meetly booking')}`;
     return (
       <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-6">
         <div className="max-w-lg w-full">
-          {/* Confetti-like animated burst */}
           <div className="flex justify-center mb-8">
             <div className="relative">
               <div className="absolute inset-0 bg-indigo-200 rounded-full animate-ping opacity-20" />
@@ -175,7 +346,7 @@ export default function GuestBookingPage({ params }: Props) {
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-8 text-center">
             <h1 className="text-2xl font-bold text-slate-900 mb-2">You&apos;re Booked!</h1>
             <p className="text-slate-500 mb-6">
-              {guestName}, your <strong>{currentEvent.name}</strong> with {host.full_name} is confirmed.
+              {guestName}, your <strong>{currentEvent.name}</strong> with {host!.full_name} is confirmed.
             </p>
 
             <div className="bg-slate-50 rounded-2xl p-5 mb-6 text-left space-y-2">
@@ -189,7 +360,7 @@ export default function GuestBookingPage({ params }: Props) {
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <User size={16} className="text-indigo-500" />
-                <span className="text-slate-700">{host.full_name}</span>
+                <span className="text-slate-700">{host!.full_name}</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <Mail size={16} className="text-indigo-500" />
@@ -202,16 +373,16 @@ export default function GuestBookingPage({ params }: Props) {
                 className="flex-1 py-2.5 px-4 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-medium hover:bg-indigo-100 transition-all text-center">
                 + Google Calendar
               </a>
-              <a href={`data:text/calendar;charset=utf8,BEGIN:VCALENDAR%0AVERSION:2.0%0ABEGIN:VEVENT%0ADTSTART:${format(calDate, 'yyyyMMdd')}T${format(calDate, 'HHmmss')}%0ADTEND:${format(parseISO(selectedSlot!.isoEnd), 'yyyyMMdd')}T${format(parseISO(selectedSlot!.isoEnd), 'HHmmss')}%0ASUMMARY:${encodeURIComponent(currentEvent.name)}%0AEND:VEVENT%0AEND:VCALENDAR`}
+              <a href={`data:text/calendar;charset=utf8,BEGIN:VCALENDAR%0AVERSION:2.0%0ABEGIN:VEVENT%0ADTSTART:${format(calDate, 'yyyyMMdd')}T${format(calDate, 'HHmmss')}%0ADTEND:${format(parseISO(selectedSlot.isoEnd), 'yyyyMMdd')}T${format(parseISO(selectedSlot.isoEnd), 'HHmmss')}%0ASUMMARY:${encodeURIComponent(currentEvent.name)}%0AEND:VEVENT%0AEND:VCALENDAR`}
                 download="meetly-booking.ics"
                 className="flex-1 py-2.5 px-4 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition-all text-center">
                 + Apple/Outlook
               </a>
             </div>
 
-            <p className="text-xs text-slate-400 mb-4">A confirmation has been sent to {guestEmail}</p>
+            <p className="text-xs text-slate-400 mb-6">Calendar invite saved to your device.</p>
 
-            <a href={`/book/${host.slug}/${currentEvent.slug}`}
+            <a href={`/book/${host!.slug}/${currentEvent.slug}`}
               className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">
               <RefreshCw size={16} /> Book Another
             </a>
@@ -221,9 +392,8 @@ export default function GuestBookingPage({ params }: Props) {
     );
   }
 
-  // ---- MAIN BOOKING PAGE ----
+  // ── Render: Main Booking Page ──
   const calendarDays = getCalendarDays(selectedDate);
-  const currentTestimonial = host.testimonials?.[testimonialIdx];
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-slate-900">
@@ -239,80 +409,48 @@ export default function GuestBookingPage({ params }: Props) {
         <header className="py-10 text-center">
           <div className="relative inline-block mb-5">
             <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-indigo-100 shadow-xl mx-auto">
-              <img src={host.avatar_url} alt={host.full_name} className="w-full h-full object-cover" />
+              <img
+                src={host!.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(host!.slug)}`}
+                alt={host!.full_name}
+                className="w-full h-full object-cover"
+              />
             </div>
             <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-emerald-400 rounded-full border-[3px] border-[#fafafa]" title="Available" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">{host.full_name}</h1>
-          {host.bio && <p className="text-slate-500 max-w-md mx-auto text-sm leading-relaxed mb-4">{host.bio}</p>}
-          {host.socials?.length > 0 && (
-            <div className="flex items-center justify-center gap-3">
-              {host.socials.map(s => (
-                <a key={s.platform} href={s.url} target="_blank" rel="noopener noreferrer"
-                  className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-all shadow-sm">
-                  {SOCIAL_ICONS[s.platform] || <Globe size={16} />}
-                </a>
-              ))}
-            </div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">{host!.full_name}</h1>
+          {host!.bio && (
+            <p className="text-slate-500 max-w-md mx-auto text-sm leading-relaxed">{host!.bio}</p>
           )}
+          <div className="mt-3 flex items-center justify-center gap-1 text-xs text-slate-400">
+            <Globe size={12} /> {host!.timezone}
+          </div>
         </header>
 
-        {/* === TRUST BAR === */}
+        {/* === TRUST BAR — only verified items === */}
         <div className="flex items-center justify-center gap-6 py-4 mb-10 flex-wrap">
-          {[
-            { icon: <Zap size={14} />, text: 'Instant confirmation', implemented: true },
-            { icon: <Globe size={14} />, text: 'Timezone aware', implemented: true },
-            { icon: <RefreshCw size={14} />, text: 'Easy rescheduling', implemented: false },
-          ].filter(item => item.implemented).map((item, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="text-indigo-500">{item.icon}</span> {item.text}
-            </div>
-          ))}
-          {/* Coming soon items */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="text-indigo-500"><Zap size={14} /></span> Instant confirmation
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="text-indigo-500"><Globe size={14} /></span> Timezone aware ({host!.timezone})
+          </div>
           <span className="flex items-center gap-1.5 text-xs text-slate-400">
             <Shield size={14} className="text-slate-300" /> Encrypted & private <span className="px-1.5 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-bold uppercase rounded">Soon</span>
           </span>
         </div>
 
-        {/* === TESTIMONIALS === */}
-        {host.testimonials?.length > 0 && currentTestimonial && (
-          <div className="mb-12">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-slate-500">What clients say</p>
-              {host.testimonials.length > 1 && (
-                <div className="flex gap-1">
-                  {host.testimonials.map((_, i) => (
-                    <button key={i} onClick={() => setTestimonialIdx(i)}
-                      className={cn('w-2 h-2 rounded-full transition-all', i === testimonialIdx ? 'bg-indigo-600 w-6' : 'bg-slate-300')} />
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 pl-8 border-l-4 border-l-indigo-500 transition-all">
-              <p className="text-sm text-slate-700 leading-relaxed mb-4">&ldquo;{currentTestimonial.text}&rdquo;</p>
-              <div className="flex items-center gap-3">
-                <img src={currentTestimonial.avatar} alt={currentTestimonial.name} className="w-8 h-8 rounded-full" />
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{currentTestimonial.name}</p>
-                  <p className="text-xs text-slate-500">{currentTestimonial.role}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* === EVENT TYPE SELECTOR === */}
-        {allEvents.length > 1 && (
+        {eventTypes.length > 1 && (
           <div className="mb-10">
             <h2 className="text-center text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Select an Event</h2>
             <div className="flex gap-3 overflow-x-auto pb-2 justify-center flex-wrap">
-              {allEvents.map(evt => (
+              {eventTypes.map((evt) => (
                 <button
                   key={evt.id}
                   onClick={() => handleEventChange(evt)}
                   className={cn(
                     'flex items-center gap-3 px-5 py-3 rounded-2xl border-2 transition-all shrink-0',
-                    currentEvent?.id === evt.id
+                    currentEvent.id === evt.id
                       ? 'border-indigo-500 bg-indigo-50 shadow-md'
                       : 'border-slate-200 bg-white hover:border-indigo-300 shadow-sm'
                   )}
@@ -340,7 +478,7 @@ export default function GuestBookingPage({ params }: Props) {
                 </div>
                 <div className="flex items-center gap-4 text-sm text-slate-500">
                   <span className="flex items-center gap-1"><Clock size={14} /> {currentEvent.duration_minutes} min</span>
-                  <span className="flex items-center gap-1"><Globe size={14} /> {host.timezone}</span>
+                  <span className="flex items-center gap-1"><Globe size={14} /> {host!.timezone}</span>
                 </div>
               </div>
             </div>
@@ -380,13 +518,10 @@ export default function GuestBookingPage({ params }: Props) {
               <div className="grid grid-cols-7 gap-1.5">
                 {calendarDays.map((day, i) => {
                   const past = day.date < startOfDay(new Date());
-                  const today = isToday(day.date);
+                  const todayFlag = isToday(day.date);
                   const selected = day.inMonth && isSameDay(day.date, selectedDate);
                   const hasBookings = day.inMonth && getBookingsForDate(day.date) > 0;
-                  const hasSlots = day.inMonth && !past && (() => {
-                    const rules = availability.filter(r => r.is_enabled);
-                    return rules.some(r => r.day_of_week === getDay(day.date));
-                  })();
+                  const hasSlots = day.inMonth && !past && activeRules.some((r) => r.day_of_week === getDay(day.date));
 
                   return (
                     <button
@@ -399,7 +534,7 @@ export default function GuestBookingPage({ params }: Props) {
                         day.inMonth && past && 'text-slate-300 cursor-not-allowed',
                         day.inMonth && !past && !selected && 'text-slate-700 hover:bg-indigo-50 hover:text-indigo-600',
                         selected && 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 scale-105',
-                        today && !selected && 'ring-2 ring-indigo-200 text-indigo-600'
+                        todayFlag && !selected && 'ring-2 ring-indigo-200 text-indigo-600'
                       )}
                     >
                       {format(day.date, 'd')}
@@ -423,7 +558,9 @@ export default function GuestBookingPage({ params }: Props) {
               {slots.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-sm">
                   <Clock className="w-8 h-8 mx-auto mb-3 text-slate-300" />
-                  No available slots
+                  {activeRules.length === 0
+                    ? 'No availability configured for this host.'
+                    : 'No available slots for this date.'}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-2 max-h-[380px] overflow-y-auto pr-1">
@@ -454,7 +591,7 @@ export default function GuestBookingPage({ params }: Props) {
         </div>
 
         {/* === BOOKING FORM === */}
-        {selectedSlot && step === 'form' && (
+        {selectedSlot && (step === 'form' || step === 'submit-disabled') && (
           <div id="booking-form" className="max-w-lg mx-auto scroll-mt-8">
             {/* Summary Card */}
             <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 mb-6">
@@ -466,10 +603,25 @@ export default function GuestBookingPage({ params }: Props) {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-indigo-600">{currentEvent.duration_minutes} min</p>
-                  <p className="text-xs text-slate-500">{host.full_name}</p>
+                  <p className="text-xs text-slate-500">{host!.full_name}</p>
                 </div>
               </div>
             </div>
+
+            {/* Booking submission not enabled notice */}
+            {step === 'submit-disabled' && (
+              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">Booking Submission Not Yet Enabled</p>
+                    <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                      The booking form is shown for preview. Actual booking submission will be available once the booking system is fully connected. All data shown is live from the database — no demo data.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-medium">{error}</div>}
             {conflict && <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl text-sm font-medium">{conflict}</div>}
@@ -518,6 +670,8 @@ export default function GuestBookingPage({ params }: Props) {
     </div>
   );
 }
+
+/* ── Calendar helper ────────────────────────────────────────── */
 
 function getCalendarDays(currentDate: Date) {
   const year = currentDate.getFullYear();
