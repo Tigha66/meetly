@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Calendar, Clock, CheckCircle, ChevronRight, ChevronLeft, Globe, User, Mail, FileText,
-  ArrowLeft, Star, Shield, Zap, RefreshCw, Hash, AtSign
+  ArrowLeft, Zap, RefreshCw, Shield, Hash, AtSign
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { format, addDays, subDays, startOfDay, parseISO, isSameDay, isToday, getDay } from 'date-fns';
@@ -260,25 +260,25 @@ export default function GuestBookingPage({ params }: Props) {
         {/* === TRUST BAR === */}
         <div className="flex items-center justify-center gap-6 py-4 mb-10 flex-wrap">
           {[
-            { icon: <Zap size={14} />, text: 'Instant confirmation' },
-            { icon: <RefreshCw size={14} />, text: 'Free reschedule' },
-            { icon: <Globe size={14} />, text: 'Timezone aware' },
-            { icon: <Shield size={14} />, text: 'Encrypted & private' },
-          ].map((item, i) => (
+            { icon: <Zap size={14} />, text: 'Instant confirmation', implemented: true },
+            { icon: <Globe size={14} />, text: 'Timezone aware', implemented: true },
+            { icon: <RefreshCw size={14} />, text: 'Easy rescheduling', implemented: false },
+          ].filter(item => item.implemented).map((item, i) => (
             <div key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className="text-indigo-500">{item.icon}</span> {item.text}
             </div>
           ))}
+          {/* Coming soon items */}
+          <span className="flex items-center gap-1.5 text-xs text-slate-400">
+            <Shield size={14} className="text-slate-300" /> Encrypted & private <span className="px-1.5 py-0.5 bg-slate-100 text-slate-400 text-[9px] font-bold uppercase rounded">Soon</span>
+          </span>
         </div>
 
         {/* === TESTIMONIALS === */}
         {host.testimonials?.length > 0 && currentTestimonial && (
           <div className="mb-12">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-1.5">
-                {[1, 2, 3, 4, 5].map(s => <Star key={s} size={14} className="text-amber-400 fill-amber-400" />)}
-                <span className="text-sm text-slate-500 ml-1">{host.testimonials.length} reviews</span>
-              </div>
+              <p className="text-sm text-slate-500">What clients say</p>
               {host.testimonials.length > 1 && (
                 <div className="flex gap-1">
                   {host.testimonials.map((_, i) => (
@@ -510,7 +510,7 @@ export default function GuestBookingPage({ params }: Props) {
                 Confirm Appointment
                 <CheckCircle size={20} className="group-hover:scale-110 transition-transform" />
               </button>
-              <p className="text-center text-xs text-slate-400">No payment required. Free booking.</p>
+              <p className="text-center text-xs text-slate-400">Free booking during early access.</p>
             </form>
           </div>
         )}

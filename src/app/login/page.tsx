@@ -20,12 +20,6 @@ export default function LoginPage() {
     setTimeout(() => { window.location.href = '/dashboard'; }, 800);
   }
 
-  function handleGoogleLogin(e: React.MouseEvent) {
-    e.preventDefault();
-    // In production, this redirects to /api/auth/signin
-    alert('Google OAuth requires credentials. See GOOGLE_SETUP.md for setup instructions.');
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -91,12 +85,14 @@ export default function LoginPage() {
             <div className="flex-1 h-px bg-slate-200" />
           </div>
 
+          {/* Google OAuth - coming soon */}
           <button
-            onClick={handleGoogleLogin}
-            className="w-full py-3 border border-slate-200 rounded-xl font-medium text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+            disabled
+            className="w-full py-3 border border-slate-200 rounded-xl font-medium text-slate-400 bg-slate-50 cursor-not-allowed flex items-center justify-center gap-2"
+            title="Google OAuth coming soon"
           >
             <Calendar size={18} />
-            Continue with Google
+            Continue with Google <span className="text-xs text-slate-400">(coming soon)</span>
           </button>
 
           <p className="text-center text-sm text-slate-500 mt-6">

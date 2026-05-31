@@ -8,7 +8,7 @@ import {
 import { cn } from '@/lib/utils/cn';
 import { format, parseISO, isPast } from 'date-fns';
 import {
-  initDefaults, getUpcomingBookings, getEventTypes, getCalendarConnection,
+  initDefaults, getUpcomingBookings, getEventTypes, getCalendarConnection, getProfile,
   cancelBooking, type MeetlyBooking, type MeetlyEventType
 } from '@/lib/storage';
 
@@ -24,6 +24,9 @@ export default function DashboardOverview() {
     setEvents(getEventTypes().filter(e => e.is_active));
     setCalStatus(getCalendarConnection());
   }, []);
+
+  const profile = getProfile();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://meetly-6vwn.vercel.app';
 
   useEffect(() => {
     loadData();
@@ -115,7 +118,7 @@ export default function DashboardOverview() {
             <h3 className="text-lg font-bold mb-2 relative z-10">Your Booking Page</h3>
             <p className="text-indigo-100 text-sm mb-6 relative z-10">Share your link to receive bookings.</p>
             <div className="flex items-center gap-3 bg-white/10 p-3 rounded-xl backdrop-blur-sm border border-white/20 relative z-10">
-              <span className="text-sm font-mono truncate flex-1">meetly.app/abdelhak/intro-call</span>
+              <span className="text-sm font-mono truncate flex-1">{appUrl}/{profile.slug}/intro-call</span>
               <a href="/book/abdelhak/intro-call" target="_blank" className="p-2 bg-white text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors">
                 <ArrowUpRight size={16} />
               </a>

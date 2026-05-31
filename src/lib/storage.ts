@@ -105,18 +105,16 @@ const DEFAULT_HOST: MeetlyProfile = {
     { platform: 'github', url: 'https://github.com/Tigha66' },
   ],
   testimonials: [
+    // Demo testimonials — replace with real client testimonials
+    // Remove this section entirely before launch, or add real verified reviews only
+    /*
     {
-      name: 'Elon Musk',
-      role: 'CEO, Tesla',
-      text: 'Abdelhak is a wizard with AI interfaces. The speed of delivery is unmatched.',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Elon',
+      name: 'Demo User',
+      role: 'Consultant',
+      text: 'Meetly helped me look more professional and book more calls.',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Demo',
     },
-    {
-      name: 'Sam Altman',
-      role: 'CEO, OpenAI',
-      text: 'Absolute precision in execution. He doesn\'t just build apps, he builds experiences.',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sam',
-    },
+    */
   ],
 };
 
