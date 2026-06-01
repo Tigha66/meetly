@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Calendar, Clock, CheckCircle, ChevronRight, ChevronLeft, Globe, User, Mail, FileText,
   ArrowLeft, Zap, RefreshCw, Shield, Hash, AtSign, AlertCircle, Loader2
@@ -52,7 +52,7 @@ type PageState =
   | { status: 'error'; code: string; message: string }
   | { status: 'ready'; host: HostProfile; eventTypes: EventType[]; rules: AvailabilityRule[] };
 
-type BookingStep = 'select' | 'form' | 'done' | 'submit-disabled';
+type BookingStep = 'select' | 'form' | 'done';
 
 /* ── API helpers ───────────────────────────────────────────── */
 
@@ -97,6 +97,7 @@ export default function GuestBookingPage({ params }: Props) {
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState('');
   const [bookings, setBookings] = useState<ConfirmedBooking[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState<BookingStep>('select');
 
   // Load host data from Supabase on mount
@@ -173,27 +174,25 @@ export default function GuestBookingPage({ params }: Props) {
 
   // Load bookings for the host when ready (for slot conflict checking)
   const hostId = pageState.status === 'ready' ? pageState.host.id : null;
-  useEffect(() => {
+
+  const loadBookings = useCallback(async () => {
     if (!hostId) return;
-    let cancelled = false;
-
-    async function loadBookings() {
-      try {
-        const from = startOfDay(new Date()).toISOString();
-        const to = addDays(new Date(), 60).toISOString();
-        const data = await fetchJson<{ bookings: ConfirmedBooking[] }>(
-          `/api/bookings?hostId=${hostId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-        );
-        if (!cancelled) setBookings(data.bookings || []);
-      } catch {
-        // Non-critical: slot checking will just be best-effort
-        console.warn('[Booking] Failed to load existing bookings');
-      }
+    try {
+      const from = startOfDay(new Date()).toISOString();
+      const to = addDays(new Date(), 60).toISOString();
+      const data = await fetchJson<{ bookings: ConfirmedBooking[] }>(
+        `/api/bookings?hostId=${hostId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      );
+      setBookings(data.bookings || []);
+    } catch {
+      // Non-critical: slot checking will just be best-effort
+      console.warn('[Booking] Failed to load existing bookings');
     }
-
-    loadBookings();
-    return () => { cancelled = true; };
   }, [hostId]);
+
+  useEffect(() => {
+    loadBookings();
+  }, [loadBookings]);
 
   // Redirect event when URL eventSlug doesn't match loaded events
   useEffect(() => {
@@ -256,15 +255,16 @@ export default function GuestBookingPage({ params }: Props) {
   function handleSlotSelect(slot: { start: string; isoStart: string; isoEnd: string }) {
     if (isSlotTaken(slot.isoStart)) return;
     setSelectedSlot(slot);
-    // Booking submission is not fully enabled yet — show form but with notice
-    setStep('submit-disabled');
+    setError('');
+    setConflict('');
+    setStep('form');
     setTimeout(() => {
       document.getElementById('booking-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
   }
 
-  function handleSubmit(_e: React.FormEvent) {
-    _e.preventDefault();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setError('');
     setConflict('');
 
@@ -272,14 +272,73 @@ export default function GuestBookingPage({ params }: Props) {
     if (!guestEmail.trim() || !guestEmail.includes('@')) { setError('Valid email is required'); return; }
     if (!selectedSlot) { setError('Please select a time slot'); return; }
     if (!selectedEvent) { setError('No event selected'); return; }
+    if (!host) { setError('Host data not loaded'); return; }
 
-    if (isSlotTaken(selectedSlot.isoStart)) {
-      setConflict('This slot was just taken. Please select another time.');
-      return;
+    setSubmitting(true);
+
+    try {
+      const res = await fetch('/api/bookings/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host_id: host.id,
+          event_type_id: selectedEvent.id,
+          guest_name: guestName.trim(),
+          guest_email: guestEmail.trim(),
+          guest_notes: guestNotes.trim(),
+          start_time: selectedSlot.isoStart,
+          end_time: selectedSlot.isoEnd,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setConfirmed(true);
+        setStep('done');
+        return;
+      }
+
+      // Handle known error codes
+      switch (data.error) {
+        case 'SLOT_TAKEN':
+          setConflict('This slot was just taken. Please select another time.');
+          // Refresh bookings so the slot shows as taken
+          loadBookings();
+          break;
+        case 'SUPABASE_NOT_CONFIGURED':
+          setError('The booking system is not yet fully configured. Please try again later.');
+          break;
+        case 'HOST_NOT_FOUND':
+          setError('Host not found. This booking link may be invalid.');
+          break;
+        case 'EVENT_NOT_FOUND':
+          setError('This event type no longer exists.');
+          break;
+        case 'EVENT_INACTIVE':
+          setError('This event type is no longer available.');
+          break;
+        case 'OUTSIDE_AVAILABILITY':
+          setError('The selected time is outside the host\'s availability.');
+          break;
+        case 'DURATION_MISMATCH':
+          setError('Booking duration does not match the event type.');
+          break;
+        case 'PAST_SLOT':
+          setError('Cannot book a time in the past.');
+          break;
+        case 'DUPLICATE_BOOKING':
+          setConflict('This booking already exists.');
+          break;
+        default:
+          setError(data.message || 'Failed to create booking. Please try again.');
+      }
+    } catch (err) {
+      console.error('[Booking] Submit error:', err);
+      setError('Failed to submit booking. Please check your connection and try again.');
+    } finally {
+      setSubmitting(false);
     }
-
-    // Booking submission endpoint not yet implemented (Phase 1E)
-    setError('Booking submission is not yet enabled. The booking system is still being connected.');
   }
 
   // ── Render: Loading ──
@@ -591,7 +650,7 @@ export default function GuestBookingPage({ params }: Props) {
         </div>
 
         {/* === BOOKING FORM === */}
-        {selectedSlot && (step === 'form' || step === 'submit-disabled') && (
+        {selectedSlot && step === 'form' && (
           <div id="booking-form" className="max-w-lg mx-auto scroll-mt-8">
             {/* Summary Card */}
             <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 mb-6">
@@ -607,21 +666,6 @@ export default function GuestBookingPage({ params }: Props) {
                 </div>
               </div>
             </div>
-
-            {/* Booking submission not enabled notice */}
-            {step === 'submit-disabled' && (
-              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-800">Booking Submission Not Yet Enabled</p>
-                    <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                      The booking form is shown for preview. Actual booking submission will be available once the booking system is fully connected. All data shown is live from the database — no demo data.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {error && <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-medium">{error}</div>}
             {conflict && <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl text-sm font-medium">{conflict}</div>}
@@ -658,9 +702,19 @@ export default function GuestBookingPage({ params }: Props) {
                 </div>
               </div>
               <button type="submit"
-                className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 group">
-                Confirm Appointment
-                <CheckCircle size={20} className="group-hover:scale-110 transition-transform" />
+                disabled={submitting}
+                className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 group disabled:opacity-60 disabled:cursor-not-allowed">
+                {submitting ? (
+                  <>
+                    <Loader2 size={20} className="animate-spin" />
+                    Confirming&hellip;
+                  </>
+                ) : (
+                  <>
+                    Confirm Appointment
+                    <CheckCircle size={20} className="group-hover:scale-110 transition-transform" />
+                  </>
+                )}
               </button>
               <p className="text-center text-xs text-slate-400">Free booking during early access.</p>
             </form>

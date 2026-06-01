@@ -33,11 +33,16 @@ Go to your Vercel project → Settings → Environment Variables and add:
 2. Open `SUPABASE_SCHEMA.sql` from the repo
 3. Run it to create all tables (profiles, event_types, availability_rules, bookings, booking_answers)
 
-## Step 4: Apply RLS Policies
+## Step 4: Apply RLS Policies + Constraints
 
 1. In Supabase → SQL Editor
 2. Open `supabase/migrations/001_rls_policies.sql` from the repo
-3. Run it to enable Row Level Security on all tables
+3. Run it to enable Row Level Security on all tables (initial policies)
+4. **Then** open `supabase/migrations/002_fix_rls_and_constraints.sql`
+5. Run it to fix broken column names from migration 001 and add double-booking exclusion constraint
+   - This migration is idempotent — safe to re-run
+   - It creates the `btree_gist` extension for the exclusion constraint
+   - It adds `no_double_booking` constraint on bookings table
 
 ## Step 5: Configure Auth Provider
 
@@ -63,16 +68,23 @@ Go to your Vercel project → Settings → Environment Variables and add:
 
 ## What Uses Supabase vs What's Still Local Storage
 
-### ✅ Migrated to Supabase (Phase 1B)
-- Authentication (signup/login/logout)
-- Profile (read + update)
-- Event types (CRUD — scoped to auth.uid())
-- Bookings (read + cancel — scoped to auth.uid())
-- Availability rules (CRUD — scoped to auth.uid())
+### ✅ Migrated to Supabase
+- Authentication (signup/login/logout) — Phase 1A
+- Profile (read + update) — Phase 1B
+- Event types (CRUD — scoped to auth.uid()) — Phase 1B
+- Bookings read + cancel (scoped to auth.uid()) — Phase 1B
+- Availability rules (CRUD — scoped to auth.uid()) — Phase 1B
+- Public booking page (host profile, events, availability from Supabase) — Phase 1C
+- **Guest booking creation (validated server-side, inserted via admin client) — Phase 1E**
+- **Double-booking protection (server overlap check + DB exclusion constraint) — Phase 1E**
 
 ### ⏳ Still Local Storage (Future phases)
-- Guest booking creation (Phase 1E)
 - Integrations page (Phase 2C)
-- Booking page host data (Phase 1C)
 - Email confirmations (Phase 2A)
 - Stripe/payments (Phase 3)
+
+### Booking insert: RLS policy approach
+- Bookings INSERT is handled by the server API route using the **admin client** (service role key)
+- The admin client bypasses RLS, so no public INSERT policy is needed
+- Server-side validation ensures data integrity (host/event validation, overlap check, availability check)
+- Database exclusion constraint (`no_double_booking`) is the final safety net against race conditions

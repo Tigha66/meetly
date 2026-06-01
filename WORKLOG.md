@@ -111,3 +111,62 @@ Migrated public booking page (`/book/[hostSlug]/[eventSlug]`) from localStorage 
 - Email confirmations (Phase 2A)
 - Google Calendar integration (Phase 2C)
 - Stripe (Phase 3)
+
+---
+
+## 2026-05-31 — Phase 1E Real Booking Creation with Supabase
+
+### Summary
+Implemented real guest booking creation. The booking form submits to a server API route that validates everything server-side and inserts into Supabase. Double-booking protection via server-side overlap check + database exclusion constraint.
+
+### Files changed
+- `src/app/api/bookings/create/route.ts` — New: server-side booking creation with full validation
+- `supabase/migrations/002_fix_rls_and_constraints.sql` — New: fix broken RLS policies from migration 001, add exclusion constraint for double-booking
+- `src/app/book/[hostSlug]/[eventSlug]/page.tsx` — Updated: real submit handler, loading states, error handling per error code, removed "not enabled yet" notice
+- `CURRENT_STATE.md` — Updated
+- `NEXT_ACTIONS.md` — Updated
+- `SUPABASE_SETUP_CHECKLIST.md` — Updated with migration 002 instructions
+
+### Server-side validation in /api/bookings/create
+1. Host exists (profiles table)
+2. Event type exists, belongs to host, is active
+3. Booking duration matches event type duration
+4. Slot is inside host availability (day_of_week + time range)
+5. Slot is not in the past
+6. No overlapping confirmed bookings (server-side overlap query)
+7. Guest name + email required and valid
+8. Database exclusion constraint as final race-condition safety net
+
+### Double-booking protection (3 layers)
+1. **Frontend:** Slot taken check on select (from loaded bookings)
+2. **Server API:** Overlap query before insert (`SELECT ... WHERE start < new_end AND end > new_start`)
+3. **Database:** Exclusion constraint using `btree_gist` (`no_double_booking` on `host_id + tstzrange(start, end) WHERE status IN ('confirmed','pending')`)
+
+### Migration 002 changes
+- Dropped all broken policies from migration 001 (wrong column names: `user_id` → `host_id`, `host_user_id` → `host_id`, `is_public` doesn't exist)
+- Recreated correct RLS policies matching actual schema
+- Added `btree_gist` extension + `no_double_booking` exclusion constraint
+- Availability rules: hidden from public (hosts only)
+- Bookings INSERT: handled by admin client (bypasses RLS), no public INSERT policy needed
+
+### Booking RLS policy summary
+- profiles: SELECT public, UPDATE/INSERT own (auth.uid() = id)
+- event_types: SELECT public, ALL for host (auth.uid() = host_id)
+- availability_rules: ALL for host only (auth.uid() = host_id), no public read
+- bookings: SELECT/UPDATE/DELETE for host (auth.uid() = host_id), INSERT via admin client
+
+### Result
+✅ Committed and pushed. Build passes: 20 routes, 0 TypeScript errors.
+⚠️ LIVE VERIFICATION BLOCKED: Supabase env vars not set in Vercel yet.
+
+### What moved from localStorage → Supabase
+| Data | Before | After |
+|---|---|---|
+| Guest booking creation | Fake addBooking() localStorage | Real Supabase insert with validation |
+| Booking conflict check | localStorage overlap check | Server-side query + DB constraint |
+
+### What's still not implemented
+- Email confirmations (Phase 2A) — no fake "email sent" claim added
+- Google Calendar sync (Phase 2C)
+- Stripe (Phase 3)
+- Rescheduling/cancellation (future)
