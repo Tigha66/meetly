@@ -31,18 +31,17 @@ Go to your Vercel project → Settings → Environment Variables and add:
 
 1. Go to Supabase → SQL Editor
 2. Open `SUPABASE_SCHEMA.sql` from the repo
-3. Run it to create all tables (profiles, event_types, availability_rules, bookings, booking_answers)
+3. Run it to create the base tables (profiles, event_types, availability_rules, bookings)
 
-## Step 4: Apply RLS Policies + Constraints
+## Step 4: Apply Migrations in Order
 
-1. In Supabase → SQL Editor
-2. Open `supabase/migrations/001_rls_policies.sql` from the repo
-3. Run it to enable Row Level Security on all tables (initial policies)
-4. **Then** open `supabase/migrations/002_fix_rls_and_constraints.sql`
-5. Run it to fix broken column names from migration 001 and add double-booking exclusion constraint
-   - This migration is idempotent — safe to re-run
-   - It creates the `btree_gist` extension for the exclusion constraint
-   - It adds `no_double_booking` constraint on bookings table
+Run these in sequence in Supabase SQL Editor:
+
+1. `supabase/migrations/001_rls_policies.sql` — Initial RLS policies (has some broken column names, will be fixed by 002)
+2. `supabase/migrations/002_fix_rls_and_constraints.sql` — Fix broken RLS policies + add double-booking exclusion constraint
+   - Creates `btree_gist` extension
+   - Adds `no_double_booking` exclusion constraint on bookings
+3. `supabase/migrations/003_answers_and_bio.sql` — Add `bio` column to profiles + create `booking_answers` table
 
 ## Step 5: Configure Auth Provider
 

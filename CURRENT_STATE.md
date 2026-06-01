@@ -1,60 +1,55 @@
 # Current State
 
 ## Last Updated
-2026-05-31 (Phase 1E complete — code ready, awaiting Supabase config)
+2026-05-31 (Phase 1E implemented and deployed, pending live Supabase verification)
 
-## Verified Working (Code)
+## Status: Phase 1E — CODE COMPLETE, LIVE VERIFICATION BLOCKED
+
+The booking spine is fully coded and deployed but **not production-verified**.
+Supabase env vars are NOT set in Vercel.
+SQL migrations 001, 002, 003 have NOT been applied to a live database.
+No live verification has been performed.
+
+## Verified Working (Code Only)
 - Build passes: 20 routes, 0 TypeScript errors
-- Login page rewritten with real Supabase auth
-- Dashboard pages all rewritten to read from Supabase scoped to auth.uid()
-- Route protection via proxy.ts
-- Profile bootstrap API on signup
-- Logout API + dashboard logout button
-- Clear env var validation with setup instructions displayed in dashboard
-- Public booking page fetches host profile, event types, and availability from Supabase APIs
-- **NEW:** Real guest booking creation via `/api/bookings/create`
-- **NEW:** Server-side validation: host exists, event type belongs to host, slot in availability, no overlap, duration match
-- **NEW:** Double-booking protection: server-side overlap check + database exclusion constraint
-- API routes: /api/host/[slug], /api/host/[slug]/events, /api/host/[slug]/availability, /api/bookings, /api/bookings/create
-- Booking page: loading state, submit loading spinner, clear error messages per error code
-- Booking confirmation page (no fake email/calendar claims — only .ics download)
+- All API routes coded and deployed
 
 ## ⏳ Blocked: Live Production Verification
-**Supabase env vars NOT set in Vercel yet** — all code deployed and will work once configured:
-- Authentication (signup/login/logout)
-- Dashboard data ownership (scoped to auth.uid())
-- Profile bootstrap on signup
-- Event types CRUD from Supabase
-- Bookings read from Supabase
-- Availability CRUD from Supabase
-- Public booking page (host lookup by slug, event types, availability)
-- **Guest booking creation** (submit → Supabase insert with validation + double-booking protection)
-- All API routes
+**Cannot verify anything in production until:**
+1. Supabase env vars are set in Vercel (3 vars)
+2. SQL migrations 001 + 002 + 003 are applied to live Supabase
+3. Live booking-spine verification is completed
 
 **To unblock:** Follow SUPABASE_SETUP_CHECKLIST.md
 
-## Still Demo / Local Only
-- **Integrations page:** localStorage, fake toggle (Phase 2C)
-- **Email confirmations:** Not implemented (Phase 2A)
-- **Google Calendar OAuth:** UI only (Phase 2C)
-- **Stripe payments:** Not started (Phase 3)
-- **Scheduling defaults:** localStorage (min notice, buffers, max daily bookings)
-- **Testimonials:** localStorage (removed from booking page entirely)
+## Security Fix Applied (This Session)
+- Replaced `/api/bookings` GET endpoint: now uses admin client (server-side only) instead of cookie-based client
+- Endpoint returns only `start_time` / `end_time` — no guest names, emails, or notes exposed
+- Slots are scoped by `host_id` in the query itself (RLS bypass is intentional; server-side filtering)
+- Removed `booking_answers` RLS references from migration 002 until table exists (added in migration 003)
 
 ## Deployment
 - Live URL: https://meetly-6vwn.vercel.app
-- Last deploy: commit (Phase 1E)
-- Status: Deployed but all Supabase features blocked by missing env vars
+- Last commit: b85fdcf
+- Status: Deployed, awaiting Supabase config + live verification
 
 ## Environment Variables Required (NOT YET SET)
 - NEXT_PUBLIC_SUPABASE_URL
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
-- SUPABASE_SERVICE_ROLE_KEY
+- SUPABASE_SERVICE_ROLE_KEY (must be server-only, never NEXT_PUBLIC_)
 - NEXT_PUBLIC_APP_URL
 
 ## Current Priority
-1. Configure Supabase in Vercel (follow SUPABASE_SETUP_CHECKLIST.md)
-2. Test signup → dashboard flow
-3. Apply SQL migrations in Supabase (001 + 002)
-4. Verify dashboard + public booking + booking creation
-5. Phase 2A: Email confirmations
+1. Configure Supabase env vars in Vercel
+2. Apply SQL migrations 001, 002, 003 to live Supabase
+3. Run live booking-spine verification checklist
+4. Run concurrent same-slot test (prove exclusion constraint works)
+5. Only after all tests pass: Phase 2A (email confirmations)
+
+## Do NOT Start
+- Phase 2A (email confirmations)
+- Google Calendar integration
+- Stripe
+- Any new feature work
+
+until the live Supabase verification gate is fully passed.

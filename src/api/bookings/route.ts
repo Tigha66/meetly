@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseAdminClient } from '@/lib/supabase/server';
 
 /**
- * Fetch confirmed bookings for a host within a time range.
- * Used by the booking page to check slot availability.
+ * Check which time slots are unavailable for a host within a range.
+ * Returns only slot start times — no guest data exposed.
  *
  * Query params:
  *   - hostId: the host's profile UUID
@@ -25,8 +25,9 @@ export async function GET(request: NextRequest) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !key) {
+  if (!url || !key || !serviceKey) {
     return NextResponse.json(
       {
         error: 'SUPABASE_NOT_CONFIGURED',
@@ -37,27 +38,29 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = await getSupabaseServerClient();
+    // Use admin client — this API uses service role key (server-side only)
+    // RLS is bypassed; we scope by host_id in the query itself
+    const supabase = getSupabaseAdminClient();
 
-    const { data: bookings, error } = await supabase
+    const { data: slots, error } = await supabase
       .from('bookings')
-      .select('id, start_time, end_time')
+      .select('start_time, end_time')
       .eq('host_id', hostId)
       .eq('status', 'confirmed')
       .gte('start_time', from)
       .lte('start_time', to);
 
     if (error) {
-      console.error('[API] Bookings error:', error);
+      console.error('[API] Slot check error:', error);
       return NextResponse.json(
-        { error: 'Failed to fetch bookings' },
+        { error: 'Failed to check availability' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ bookings: bookings || [] });
+    return NextResponse.json({ slots: slots || [] });
   } catch (err) {
-    console.error('[API] Bookings exception:', err);
+    console.error('[API] Slot check exception:', err);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
