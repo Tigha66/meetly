@@ -159,7 +159,7 @@ export default function DashboardOverview() {
   }
 
   const upcomingCount = bookings.filter(b => !isPast(parseISO(b.start_time))).length;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://meetly-6vwn.vercel.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://meetly-three-khaki.vercel.app';
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
